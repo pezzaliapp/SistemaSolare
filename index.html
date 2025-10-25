@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CubeSat Orbit Lab + Sistema Solare — pezzaliAPP</title>
+<title>CubeSat Orbit Lab — pezzaliAPP (v4.2)</title>
 <style>
 :root{--bg:#050a1e;--bg2:#0a1233;--ink:#eaf1ff;--muted:#99add6;--line:#1b2a66;--accent:#8b5cf6;--glow:#2dd4bf}
 *{box-sizing:border-box}html,body{height:100%}
@@ -33,13 +33,14 @@ padding:8px 10px;border-radius:10px;border:1px solid #1a2355;box-shadow:0 0 0 1p
 footer{padding:18px;text-align:center;color:var(--muted)}
 .hidden{display:none}
 button.xls{border:1px solid var(--line);background:#0f1837;color:var(--ink);padding:8px 12px;border-radius:12px;cursor:pointer;font-weight:700}
+.hud .warn{color:#ffd7a8}
 </style>
 </head>
 <body>
 <header>
   <div class="header-inner">
     <h1>CubeSat Orbit Lab — pezzaliAPP <span class="badge">+ Sistema Solare</span></h1>
-    <div class="small">CubeSat / 8 Pianeti · ω/M₀ · Ombra+Parallax · Drag opzionale · Export Excel · Zoom/Drag</div>
+    <div class="small">CubeSat / 8 Pianeti · ω/M₀ · Drag · Export Excel · Zoom/Drag · Beacon radio</div>
   </div>
 </header>
 
@@ -136,19 +137,20 @@ button.xls{border:1px solid var(--line);background:#0f1837;color:var(--ink);padd
       </div>
     </div>
   </section>
-  <p class="small">Nessuna dipendenza. Se vedi stranezze: hard refresh (⌘⇧R).</p>
+  <p class="small">Nessuna dipendenza. Nota: l’autoplay audio può richiedere un click iniziale sul canvas (policy browser).</p>
 </main>
-<footer>© 2025 — MIT</footer>
+<footer>© 2025 — pezzaliAPP</footer>
 
 <script>
 (function(){
 'use strict';
-/* ===== Costanti ===== */
+/* ===== Costanti fisiche & util ===== */
 const R_EARTH=6371e3, MU=3.986004418e14, OBLIQUITY=23.44*Math.PI/180, AU=149597870700;
 const RHO0=1.225, Hs=8500;
 
 /* ===== Canvas & Camera ===== */
 const canvas=document.getElementById('view'), ctx=canvas.getContext('2d');
+const hud=document.getElementById('hud');
 let W=canvas.width,H=canvas.height,cx=W/2,cy=H/2;
 const cam={r:2.8*R_EARTH,theta:-0.8,phi:0.9,fov:900,target:{x:0,y:0,z:0}};
 
@@ -175,7 +177,7 @@ const stars=(()=>{const rng=i=>{let x=i*1664525+1013904223;x^=x<<13;x^=x>>17;x^=
 function drawStars(now){const par=[0.2,0.5,1.0];ctx.save();for(let L=0;L<3;L++){ctx.globalAlpha=0.55+0.15*L;const k=par[L];for(const s of stars[L]){const x=((s.x*W+k*cam.theta*90)%W+W)%W;const y=((s.y*H+k*cam.phi*60)%H+H)%H;const tw=(Math.sin(now*0.001+(s.x+s.y)*50)*0.5+0.5)*0.6+0.2+0.1*L;ctx.fillStyle=`rgba(255,255,255,${tw.toFixed(3)})`;ctx.fillRect(x,y,1,1);}}ctx.restore();}
 
 /* ===== UI base ===== */
-const el=id=>document.getElementById(id), hud=el('hud');
+const el=id=>document.getElementById(id);
 let t=0,timescale=+el('timescale').value;el('timescaleVal').textContent=timescale.toFixed(1)+'×';
 el('timescale').oninput=()=>{timescale=+el('timescale').value;el('timescaleVal').textContent=timescale.toFixed(1)+'×';};
 const modeSel=el('mode');let mode=modeSel.value;
@@ -188,7 +190,6 @@ showAxes:el('showAxes'),showOrbit:el('showOrbit'),atmo:el('atmo'),shadow:el('sha
 perV:el('perigeeVal'),apoV:el('apogeeVal'),inclV:el('inclVal'),raanV:el('raanVal'),argpV:el('argpVal'),m0V:el('m0Val'),trailV:el('trailVal'),bcV:el('bcVal')};
 let perigeeAlt=400e3,apogeeAlt=400e3,inclDeg=51,raanDeg=0,argpDeg=0,m0Deg=0,showAxes=true,showOrbit=true,showAtmo=true,showShadow=true,useDrag=false,BC=0.005,trailMax=800,trail=[];
 let a=0,e=0,i=0,RAAN=0,ARGP=0,M0=0,dhAccum=0,lastAlt=null,periodEst=null,orbitTimeAccum=0,dhPerOrbit=0,log=[],logEvery=3,logAcc=0;
-
 function setFromUI(){
   perigeeAlt=+S.per.value*1000;S.perV.textContent=(perigeeAlt/1000).toFixed(0);
   apogeeAlt=+S.apo.value*1000;S.apoV.textContent=(apogeeAlt/1000).toFixed(0);
@@ -212,6 +213,8 @@ S.scenario.onchange=()=>{const v=S.scenario.value;
   else if(v==='gto'){S.per.value=250;S.apo.value=35786;S.incl.value=27;S.raan.value=20;S.argp.value=180;S.m0.value=0;el('timescale').value=30;el('timescale').oninput();S.trail.value=2000;}
   setFromUI();
 };
+
+/* Keplero → stato */
 function elementsToState(a,e,i,raan,argp,M0,time){const n=Math.sqrt(MU/Math.pow(a,3));const M=(M0+n*time)%(2*Math.PI);let E=M;for(let k=0;k<8;k++){const f=E-e*Math.sin(E)-M,fp=1-e*Math.cos(E);E-=f/fp;}
 const cosE=Math.cos(E),sinE=Math.sin(E);const nu=Math.atan2(Math.sqrt(1-e*e)*sinE,cosE-e);const r=a*(1-e*cosE);const xpf=r*Math.cos(nu),ypf=r*Math.sin(nu);
 const cO=Math.cos(raan),sO=Math.sin(raan),ci=Math.cos(i),si=Math.sin(i),co=Math.cos(argp),so=Math.sin(argp);
@@ -219,13 +222,6 @@ const x=(cO*co - sO*so*ci)*xpf + (-cO*so - sO*co*ci)*ypf, y=(so*si)*xpf + (co*si
 function sunDirection(timeSec){const season=timeSec/(200*Math.PI),alpha=season,delta=OBLIQUITY*Math.sin(season);const c=Math.cos(delta),s=Math.sin(delta);return nrm(V(c*Math.cos(alpha),s,c*Math.sin(alpha)));}
 function inUmbra(p,sDir){const d=dot(p,sDir);if(d>0)return false;const perp=Math.sqrt(dot(p,p)-d*d);return perp<R_EARTH;}
 function applyDrag(dt,st){const rmag=Math.sqrt(dot(st.pos,st.pos)),alt=rmag-R_EARTH;if(alt<120e3)return;const v=Math.sqrt(MU*(2/rmag-1/a)),rho=RHO0*Math.exp(-alt/Hs),k=BC*1e-5;a=Math.max(R_EARTH+100e3,a-k*rho*v*v*v*dt);e=Math.max(0,e-k*0.2*rho*v*v*dt);periodEst=2*Math.PI/Math.sqrt(MU/Math.pow(a,3));}
-function drawEarth(sDir){const R=projectRadius(R_EARTH),c0=worldToScreen(V(0,0,0));if(showShadow){const s2=worldToScreen(add(V(0,0,0),mul(sDir,R_EARTH)));const vx=c0.x-(s2.x-c0.x),vy=c0.y-(s2.y-c0.y);const gx=c0.x+(vx-c0.x)*0.35,gy=c0.y+(vy-c0.y)*0.35;const pen=ctx.createRadialGradient(gx,gy,R*0.9,c0.x,c0.y,R*1.15);pen.addColorStop(0,"rgba(0,0,0,0)");pen.addColorStop(1,"rgba(0,0,0,0.18)");ctx.fillStyle=pen;ctx.beginPath();ctx.arc(c0.x,c0.y,R*1.15,0,Math.PI*2);ctx.fill();const night=ctx.createRadialGradient(gx,gy,R*0.2,c0.x,c0.y,R*1.05);night.addColorStop(0,"rgba(0,0,0,0)");night.addColorStop(1,"rgba(0,0,0,0.48)");ctx.fillStyle=night;ctx.beginPath();ctx.arc(c0.x,c0.y,R,0,Math.PI*2);ctx.fill();}
-const sea=ctx.createRadialGradient(c0.x-0.3*R,c0.y-0.35*R,R*0.2,c0.x,c0.y,R*1.1);sea.addColorStop(0,"#2a6fdb");sea.addColorStop(1,"#0a1d47");ctx.fillStyle=sea;ctx.beginPath();ctx.arc(c0.x,c0.y,R,0,Math.PI*2);ctx.fill();
-if(showAtmo){const Ra=R*1.04,a=ctx.createRadialGradient(c0.x,c0.y,R*0.95,c0.x,c0.y,Ra);a.addColorStop(0,"rgba(120,200,255,.05)");a.addColorStop(1,"rgba(120,200,255,0)");ctx.fillStyle=a;ctx.beginPath();ctx.arc(c0.x,c0.y,Ra,0,Math.PI*2);ctx.fill();}
-if(showAxes){ctx.strokeStyle="rgba(255,255,255,.2)";ctx.lineWidth=1;ctx.beginPath();const A=[V(R_EARTH*1.3,0,0),V(-R_EARTH*1.3,0,0),V(0,R_EARTH*1.3,0),V(0,-R_EARTH*1.3,0),V(0,0,R_EARTH*1.3),V(0,0,-R_EARTH*1.3)];for(let i=0;i<A.length;i+=2){const a=worldToScreen(A[i]),b=worldToScreen(A[i+1]);ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);}ctx.stroke();}}
-function drawOrbitPath(points){if(!showOrbit||points.length<2)return;ctx.strokeStyle="rgba(96,165,250,.85)";ctx.lineWidth=1.6;ctx.beginPath();let s=worldToScreen(points[0]);ctx.moveTo(s.x,s.y);for(let i=1;i<points.length;i++){s=worldToScreen(points[i]);ctx.lineTo(s.x,s.y);}ctx.stroke();}
-function drawCubeSat(p,eclipsed){const s=worldToScreen(p),size=Math.max(2,Math.min(14,8+1200/(1+s.z+1e-6)));ctx.fillStyle=eclipsed?"rgba(234,241,255,0.6)":"#eaf1ff";ctx.strokeStyle="rgba(0,0,0,.25)";ctx.beginPath();ctx.rect(s.x-size/2,s.y-size/2,size,size);ctx.fill();ctx.stroke();ctx.fillStyle=eclipsed?"rgba(96,165,250,0.5)":"#60a5fa";ctx.fillRect(s.x-size*1.9,s.y-size*0.3,size*0.7,size*0.6);ctx.fillRect(s.x+size*1.2,s.y-size*0.3,size*0.7,size*0.6);}
-document.getElementById('btnXls').onclick=function(){let html='<table><thead><tr>';const headers=["t","x","y","z","alt_m","a_m","e","i_deg","RAAN_deg","argp_deg","M0_deg","eclissi"];for(const h of headers)html+=`<th>${h}</th>`;html+='</tr></thead><tbody>';for(const r of log){html+='<tr>' + `<td>${r.t.toFixed(2)}</td><td>${r.x.toFixed(3)}</td><td>${r.y.toFixed(3)}</td><td>${r.z.toFixed(3)}</td>` + `<td>${r.alt_m.toFixed(3)}</td><td>${r.a_m.toFixed(3)}</td><td>${r.e.toFixed(6)}</td>` + `<td>${(+r.i_deg).toFixed(3)}</td><td>${(+r.raan_deg).toFixed(3)}</td><td>${(+r.argp_deg).toFixed(3)}</td>` + `<td>${(+r.m0_deg).toFixed(3)}</td><td>${r.eclipse}</td></tr>`;}html+='</tbody></table>';const blob=new Blob([html],{type:'application/vnd.ms-excel'}),url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='cubesat_telemetria.xls';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 
 /* ===== Sistema Solare ===== */
 const PLANETS=[{name:'Mercurio',a:0.387,e:0.206,i:7.00,O:48.331,w:29.124,M0:174.796,P:87.969,rE:0.383,color:'#c9b090'},
@@ -264,12 +260,141 @@ function drawSolarSystem(){
   });
 }
 
+/* ===== Beacon radio: visivo + testo + audio ===== */
+// Stato trasmissione
+let txTimer=0, txCooldown=60; // ogni 60s simulati
+let txPulseR=0, txPulseAlpha=0, txActive=false;
+let binAlpha=0, humanAlpha=0, binTimer=0;
+let lastSatPosScreen={x:0,y:0};
+
+// Messaggi
+const BIN_MSG = "01000011 11001000 00100000 01100011 111000 11001000 01110101 110111 00100000 01101001 01101110 00100000 01100001 01110011 01100011 01101111 01101100 01110100 01101111 00111111";
+const HUMAN_MSG = "«C’è qualcuno in ascolto?»";
+
+// Audio (WebAudio)
+let audioCtx=null, audioUnlocked=false, audioWarnShown=false;
+function ensureAudio(){
+  if(!audioCtx){ try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(audioCtx && audioCtx.state==="suspended"){ audioCtx.resume().then(()=>{audioUnlocked=true;}).catch(()=>{}); }
+  if(audioCtx && audioCtx.state==="running"){ audioUnlocked=true; }
+  if(!audioUnlocked && !audioWarnShown){ hud.innerHTML += `<br><span class="warn">Audio in attesa: fai un click/tap per sbloccarlo.</span>`; audioWarnShown=true; }
+}
+function userUnlock(){ ensureAudio(); if(audioUnlocked){ // ripulisci avviso
+  hud.innerHTML = hud.textContent.split('\n')[0];
+}}
+['pointerdown','keydown','touchstart'].forEach(ev=>document.addEventListener(ev,userUnlock,{once:false,passive:true}));
+document.addEventListener('visibilitychange',ensureAudio);
+setTimeout(ensureAudio,100); // tentativo iniziale
+
+function ping(){
+  ensureAudio();
+  if(!audioUnlocked || !audioCtx) return;
+  const now=audioCtx.currentTime;
+  const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+  o.type='sine'; o.frequency.setValueAtTime(840,now);
+  g.gain.setValueAtTime(0.001,now);
+  g.gain.exponentialRampToValueAtTime(0.15, now+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0005, now+0.28);
+  o.connect(g).connect(audioCtx.destination);
+  o.start(now); o.stop(now+0.3);
+}
+
+// Disegno e gestione trasmissione (partenza dal CUBESAT)
+function startTransmission(){
+  txActive=true; txPulseR=1; txPulseAlpha=1; binAlpha=1; humanAlpha=0; binTimer=0;
+  ping();
+}
+function drawTransmission(dt){
+  if(!txActive) return;
+  // Onda dal Cubesat
+  txPulseR += dt*160; // velocità espansione
+  txPulseAlpha = Math.max(0, 1 - txPulseR/1400);
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(lastSatPosScreen.x, lastSatPosScreen.y, txPulseR, 0, Math.PI*2);
+  ctx.strokeStyle = `rgba(120,200,255,${txPulseAlpha.toFixed(2)})`;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+
+  // Testi: binario → umano (B)
+  if(binAlpha>0){
+    binTimer += dt;
+    binAlpha = Math.max(0, binAlpha - dt*0.6);
+    ctx.save();
+    ctx.globalAlpha = binAlpha;
+    ctx.font="14px ui-monospace, Menlo, monospace";
+    ctx.fillStyle="#9fe3ff";
+    ctx.textAlign="center";
+    ctx.fillText("[437.5 MHz – AFSK Beacon] IU2PEZ > ALL:", W/2, 54);
+    ctx.fillText(BIN_MSG, W/2, 74);
+    ctx.restore();
+    if(binTimer > 1.0 && humanAlpha===0){ humanAlpha = 1.0; } // dopo 1s inizia il testo umano
+  }
+  if(humanAlpha>0){
+    humanAlpha = Math.max(0, humanAlpha - dt*0.2);
+    ctx.save();
+    ctx.globalAlpha = humanAlpha;
+    ctx.font = "16px ui-monospace, Menlo, monospace";
+    ctx.fillStyle = "#a8eaff";
+    ctx.textAlign = "center";
+    ctx.fillText("Transmitting message…", W/2, 96);
+    ctx.font = "20px ui-monospace, Menlo, monospace";
+    ctx.fillText(HUMAN_MSG, W/2, 120);
+    ctx.restore();
+  }
+  if(txPulseAlpha<=0.02 && binAlpha<=0 && humanAlpha<=0){ txActive=false; }
+}
+
+/* ===== Disegno Terra, orbita, cubesat ===== */
+function drawEarth(sDir){
+  const R=projectRadius(R_EARTH),c0=worldToScreen(V(0,0,0));
+  // penombra/ombra
+  const s2=worldToScreen(add(V(0,0,0),mul(sDir,R_EARTH)));
+  const vx=c0.x-(s2.x-c0.x),vy=c0.y-(s2.y-c0.y);const gx=c0.x+(vx-c0.x)*0.35,gy=c0.y+(vy-c0.y)*0.35;
+  const pen=ctx.createRadialGradient(gx,gy,R*0.9,c0.x,c0.y,R*1.15);pen.addColorStop(0,"rgba(0,0,0,0)");pen.addColorStop(1,"rgba(0,0,0,0.18)");
+  ctx.fillStyle=pen;ctx.beginPath();ctx.arc(c0.x,c0.y,R*1.15,0,Math.PI*2);ctx.fill();
+  const night=ctx.createRadialGradient(gx,gy,R*0.2,c0.x,c0.y,R*1.05);night.addColorStop(0,"rgba(0,0,0,0)");night.addColorStop(1,"rgba(0,0,0,0.48)");
+  ctx.fillStyle=night;ctx.beginPath();ctx.arc(c0.x,c0.y,R,0,Math.PI*2);ctx.fill();
+  // mare + atmosfera
+  const sea=ctx.createRadialGradient(c0.x-0.3*R,c0.y-0.35*R,R*0.2,c0.x,c0.y,R*1.1);sea.addColorStop(0,"#2a6fdb");sea.addColorStop(1,"#0a1d47");
+  ctx.fillStyle=sea;ctx.beginPath();ctx.arc(c0.x,c0.y,R,0,Math.PI*2);ctx.fill();
+  const Ra=R*1.04,a=ctx.createRadialGradient(c0.x,c0.y,R*0.95,c0.x,c0.y,Ra);a.addColorStop(0,"rgba(120,200,255,.05)");a.addColorStop(1,"rgba(120,200,255,0)");
+  ctx.fillStyle=a;ctx.beginPath();ctx.arc(c0.x,c0.y,Ra,0,Math.PI*2);ctx.fill();
+
+  // assi
+  if(el('showAxes').checked){ctx.strokeStyle="rgba(255,255,255,.2)";ctx.lineWidth=1;ctx.beginPath();
+    const A=[V(R_EARTH*1.3,0,0),V(-R_EARTH*1.3,0,0),V(0,R_EARTH*1.3,0),V(0,-R_EARTH*1.3,0),V(0,0,R_EARTH*1.3),V(0,0,-R_EARTH*1.3)];
+    for(let i=0;i<A.length;i+=2){const a=worldToScreen(A[i]),b=worldToScreen(A[i+1]);ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);}ctx.stroke();
+  }
+}
+function drawOrbitPath(points){
+  if(!el('showOrbit').checked||points.length<2) return;
+  ctx.strokeStyle="rgba(96,165,250,.85)"; ctx.lineWidth=1.6; ctx.beginPath();
+  let s=worldToScreen(points[0]); ctx.moveTo(s.x,s.y);
+  for(let i=1;i<points.length;i++){ s=worldToScreen(points[i]); ctx.lineTo(s.x,s.y); }
+  ctx.stroke();
+}
+function drawCubeSat(p, eclipsed){
+  const s = worldToScreen(p), size = Math.max(2,Math.min(14,8+1200/(1+s.z+1e-6)));
+  ctx.fillStyle = eclipsed? "rgba(234,241,255,0.6)" : "#eaf1ff";
+  ctx.strokeStyle="rgba(0,0,0,.25)"; ctx.beginPath(); ctx.rect(s.x-size/2, s.y-size/2, size, size); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = eclipsed? "rgba(96,165,250,0.5)" : "#60a5fa";
+  ctx.fillRect(s.x - size*1.9, s.y - size*0.3, size*0.7, size*0.6);
+  ctx.fillRect(s.x + size*1.2, s.y - size*0.3, size*0.7, size*0.6);
+  // memorizza posizione schermo per il beacon
+  lastSatPosScreen = {x:s.x, y:s.y};
+}
+
+/* ===== Export Excel ===== */
+document.getElementById('btnXls').onclick=function(){let html='<table><thead><tr>';const headers=["t","x","y","z","alt_m","a_m","e","i_deg","RAAN_deg","argp_deg","M0_deg","eclissi"];for(const h of headers)html+=`<th>${h}</th>`;html+='</tr></thead><tbody>';for(const r of log){html+='<tr>' + `<td>${r.t.toFixed(2)}</td><td>${r.x.toFixed(3)}</td><td>${r.y.toFixed(3)}</td><td>${r.z.toFixed(3)}</td>` + `<td>${r.alt_m.toFixed(3)}</td><td>${r.a_m.toFixed(3)}</td><td>${r.e.toFixed(6)}</td>` + `<td>${(+r.i_deg).toFixed(3)}</td><td>${(+r.raan_deg).toFixed(3)}</td><td>${(+r.argp_deg).toFixed(3)}</td>` + `<td>${(+r.m0_deg).toFixed(3)}</td><td>${r.eclipse}</td></tr>`;}html+='</tbody></table>';const blob=new Blob([html],{type:'application/vnd.ms-excel'}),url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='cubesat_telemetria.xls';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+
 /* ===== Loop & reset ===== */
+const modeInit='solarsys'; // puoi mettere 'cubesat' se preferisci
 function resetForMode(forceSSInit=false){
-  if(mode==='cubesat'){el('scenario').value='leo';el('scenario').dispatchEvent(new Event('change'));}
+  if(mode==='cubesat'){ el('scenario').value='leo'; el('scenario').dispatchEvent(new Event('change')); }
   else{
-    // scala default e camera LONTANA per vedere subito i pianeti
-    if(forceSSInit){el('ssScale').value=260;el('ssScaleVal').textContent='260 px/AU';ssScale=260;}
+    if(forceSSInit){ el('ssScale').value=260; el('ssScaleVal').textContent='260 px/AU'; ssScale=260; }
     cam.r = 40*AU/ssScale; cam.theta = -0.6; cam.phi = 0.5; cam.target=V(0,0,0);
   }
 }
@@ -288,22 +413,34 @@ function loop(now){
     if(S.scenario.value==='launch'){const k=Math.max(0,Math.min(1,t/120));st=elementsToState(a,e*k,i*k,RAAN*k,ARGP*k,M0*k,t);}
     else{const st0=elementsToState(a,e,i,RAAN,ARGP,M0,t); if(useDrag)applyDrag(dt*timescale,st0); M0=(M0+Math.sqrt(MU/Math.pow(a,3))*dt*timescale)%(2*Math.PI); st=elementsToState(a,e,i,RAAN,ARGP,M0,t);}
     trail.push(st.pos); if(trail.length>trailMax)trail.shift();
-    const sDir=sunDirection(t); drawEarth(sDir); drawOrbitPath(trail); const eclipsed=inUmbra(st.pos,sDir); drawCubeSat(st.pos,eclipsed);
-    const alt=Math.sqrt(dot(st.pos,st.pos))-R_EARTH; if(lastAlt===null)lastAlt=alt; const dAlt=alt-lastAlt; lastAlt=alt;
+
+    const sDir = nrm(V(1,0,0)); // direzione Sole semplificata per ombra gradevole
+    drawEarth(sDir); drawOrbitPath(trail);
+    const eclipsed = inUmbra(st.pos, sDir);
+    drawCubeSat(st.pos, eclipsed);
+
+    // Telemetria
+    const alt = Math.sqrt(dot(st.pos,st.pos)) - R_EARTH;
+    if(lastAlt===null) lastAlt=alt; const dAlt=alt-lastAlt; lastAlt=alt;
     if(useDrag){dhAccum+=dAlt;orbitTimeAccum+=dt*timescale;if(periodEst&&orbitTimeAccum>=periodEst){dhPerOrbit=(dhAccum/1000);dhAccum=0;orbitTimeAccum=0;}} else {dhPerOrbit=0;dhAccum=0;orbitTimeAccum=0;}
     logAcc+=dt*timescale;if(logAcc>=logEvery){logAcc=0;log.push({t,x:st.pos.x,y:st.pos.y,z:st.pos.z,alt_m:alt,a_m:a,e,i_deg:inclDeg,raan_deg:raanDeg,argp_deg:argpDeg,m0_deg:m0Deg,eclipse:eclipsed?1:0}); if(log.length>10000)log.shift();}
-    hud.textContent=`CubeSat | t=${t.toFixed(0)}s | alt=${(alt/1000).toFixed(0)}km | a=${(a/1000).toFixed(0)}km | e=${e.toFixed(3)} | i=${inclDeg|0}° | Ω=${raanDeg|0}° | ω=${argpDeg|0}° | M₀=${m0Deg|0}° | drag:${useDrag?'ON':'OFF'} | BC=${BC.toFixed(4)} | Δh=${dhPerOrbit.toFixed(2)} km/orbit`;
+
+    // === Trasmissione ogni 60s simulati (dal CUBESAT) ===
+    txTimer += dt*timescale;
+    if(txTimer>=txCooldown && !txActive){ txTimer=0; startTransmission(); }
+    drawTransmission(dt);
+
+    hud.textContent=`CubeSat | t=${t.toFixed(0)}s | alt=${(alt/1000).toFixed(0)}km | a=${(a/1000).toFixed(0)}km | e=${e.toFixed(3)} | i=${inclDeg|0}° | Ω=${raanDeg|0}° | ω=${argpDeg|0}° | M₀=${m0Deg|0}° | drag:${useDrag?'ON':'OFF'} | BC=${BC.toFixed(4)} | Δh=${dhPerOrbit.toFixed(2)} km/orbit` + (audioUnlocked?"":"\nAudio in attesa: fai click/tap per abilitarlo");
+
   } else {
-    t += dt*timescale*864;
-    cam.r = Math.max(0.05*AU, Math.min(200*AU, cam.r));
-    drawSolarSystem();
-    hud.textContent=`Sistema Solare | t=${(t/86400).toFixed(1)} giorni sim | scala=${ssScale} px/AU | rPlan=${(+el('ssPR').value).toFixed(1)}× | incl:${optSS.incl.checked?'ON':'OFF'} | trails:${optSS.trails.checked?'ON':'OFF'} | spin:${optSS.spin.checked?'ON':'OFF'} | rings:${optSS.rings.checked?'ON':'OFF'}`;
+    t += dt*timescale*864; cam.r=Math.max(0.05*AU,Math.min(200*AU,cam.r)); drawSolarSystem();
+    hud.textContent=`Sistema Solare | t=${(t/86400).toFixed(1)} giorni sim | scala=${ssScale} px/AU | rPlan=${(+el('ssPR').value).toFixed(1)}× | incl:${optSS.incl.checked?'ON':'OFF'} | trails:${optSS.trails.checked?'ON':'OFF'} | spin:${optSS.spin.checked?'ON':'OFF'} | rings:${optSS.rings.checked?'ON':'OFF'}` + (audioUnlocked?"":"\nAudio in attesa: fai click/tap per abilitarlo");
   }
 }
 requestAnimationFrame(loop);
 
-// se l’utente passa a Sistema Solare, imposta vista ampia
-modeSel.value='solarsys'; mode='solarsys'; togglePanels(); resetForMode(true); // <-- opzionale: apri direttamente SS
+// Avvio predefinito in Sistema Solare (modifica a piacere)
+modeSel.value='solarsys'; mode='solarsys'; togglePanels(); resetForMode(true);
 })();
 </script>
 </body>
