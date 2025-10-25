@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Sistema Solare — pezzaliAPP</title>
+<title>CubeSat Orbit Lab + Sistema Solare — pezzaliAPP (Standalone)</title>
 <style>
 :root{
   --bg:#050a1e; --bg2:#0a1233; --ink:#eaf1ff; --muted:#99add6;
@@ -36,6 +36,19 @@ h1{
   display:inline-block; margin-left:8px; padding:2px 8px; border-radius:999px;
   background:#14204e; color:#a7b7ef; font:700 11px/1 ui-monospace; box-shadow:0 0 0 1px #24357a inset;
 }
+header::after{
+  content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px;
+  background:linear-gradient(90deg, transparent, var(--accent), var(--glow), transparent);
+  filter:blur(.6px); opacity:.8; animation:flow 6s linear infinite;
+}
+@keyframes flow{0%{background-position:-200px 0}100%{background-position:200px 0}}
+
+main{max-width:1200px; margin:0 auto; padding:14px}
+.canvas-wrap{
+  position:relative; border:1px solid var(--line); border-radius:18px; overflow:hidden;
+  background: radial-gradient(900px 500px at 50% 10%, #0d1433 10%, #0a0f2a 70%);
+  box-shadow:0 30px 60px rgba(0,0,0,.35), 0 0 0 1px #0c183f inset;
+}
 canvas{display:block; width:100%; height:auto}
 .hud{
   position:absolute; left:10px; top:10px; font:12px/1.25 ui-monospace, Menlo, Consolas, monospace;
@@ -43,134 +56,611 @@ canvas{display:block; width:100%; height:auto}
   background:#0a0f2acc; padding:8px 10px; border-radius:10px; border:1px solid #1a2355;
   box-shadow:0 0 0 1px rgba(45,212,191,.2), 0 0 20px rgba(45,212,191,.08);
 }
+.controls{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  gap:14px; margin-top:14px;
+}
+.controls .group{
+  background:linear-gradient(180deg,#0f1742,#0a102f); border:1px solid var(--line);
+  border-radius:14px; padding:12px
+}
+.controls label{display:block; font-size:13px; color:var(--muted); margin-bottom:8px}
+.controls input[type=range]{width:100%}
+.controls select, .controls input[type=range]{margin-top:6px}
+.controls .toggles{display:flex; gap:16px; flex-wrap:wrap}
+.small{font-size:12px; color:var(--muted)}
+footer{padding:18px; text-align:center; color:var(--muted)}
+.hidden{display:none}
 </style>
 </head>
 <body>
 <header>
   <div class="header-inner">
-    <h1>Sistema Solare — pezzaliAPP <span class="badge">standalone</span></h1>
-    <div class="small">8 pianeti · Orbite inclinate · Rotazione · Scala visiva</div>
+    <h1>CubeSat Orbit Lab — pezzaliAPP <span class="badge">+ Sistema Solare</span></h1>
+    <div class="small">Modalità: CubeSat / 8 Pianeti · ω/M₀ · Ombra+Parallax · Drag opzionale · Export Excel</div>
   </div>
 </header>
 
-<main style="max-width:1100px; margin:0 auto; padding:14px">
-  <section class="canvas-wrap" style="position:relative; border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#0a0f2a; box-shadow:0 30px 60px rgba(0,0,0,.35)">
-    <canvas id="view" width="960" height="540"></canvas>
-    <div class="hud" id="hud">Caricamento…</div>
+<main>
+  <section class="canvas-wrap">
+    <canvas id="view" width="1200" height="675" aria-label="Simulazione orbite"></canvas>
+    <div class="hud" id="hud">loading…</div>
   </section>
+
+  <section class="controls">
+    <div class="group">
+      <label>Modalità
+        <select id="mode">
+          <option value="cubesat" selected>CubeSat (intorno alla Terra)</option>
+          <option value="solarsys">Sistema Solare (8 pianeti)</option>
+        </select>
+      </label>
+      <label>Velocità simulazione
+        <input id="timescale" type="range" min="0.1" max="300" step="0.1" value="6">
+        <span id="timescaleVal">6×</span>
+      </label>
+    </div>
+
+    <!-- Parametri CubeSat -->
+    <div class="group cs-only">
+      <label>Scenario
+        <select id="scenario">
+          <option value="leo" selected>LEO Circolare 400 km</option>
+          <option value="launch">Lancio → Inserimento</option>
+          <option value="ellipse">Ellittica 300 × 800 km</option>
+          <option value="gto">GTO semplificata</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="group cs-only">
+      <label>Altitudine Perigeo (km)
+        <input id="perigee" type="range" min="180" max="2000" step="10" value="400">
+        <span id="perigeeVal">400</span>
+      </label>
+      <label>Altitudine Apogeo (km)
+        <input id="apogee" type="range" min="180" max="36000" step="10" value="400">
+        <span id="apogeeVal">400</span>
+      </label>
+    </div>
+
+    <div class="group cs-only">
+      <label>Inclinazione i (°)
+        <input id="incl" type="range" min="0" max="98" step="1" value="51">
+        <span id="inclVal">51</span>
+      </label>
+      <label>RAAN Ω (°)
+        <input id="raan" type="range" min="0" max="360" step="1" value="0">
+        <span id="raanVal">0</span>
+      </label>
+      <label>Argomento del perigeo ω (°)
+        <input id="argp" type="range" min="0" max="360" step="1" value="0">
+        <span id="argpVal">0</span>
+      </label>
+      <label>Anomalia media M₀ (°)
+        <input id="m0" type="range" min="0" max="360" step="1" value="0">
+        <span id="m0Val">0</span>
+      </label>
+    </div>
+
+    <div class="group cs-only">
+      <label>Trail
+        <input id="trail" type="range" min="0" max="2000" step="10" value="800">
+        <span id="trailVal">800</span>
+      </label>
+      <div class="toggles">
+        <label><input type="checkbox" id="showAxes" checked> Assi</label>
+        <label><input type="checkbox" id="showOrbit" checked> Orbita</label>
+        <label><input type="checkbox" id="atmo" checked> Atmosfera</label>
+        <label><input type="checkbox" id="shadow" checked> Ombra Terra</label>
+      </div>
+    </div>
+
+    <div class="group cs-only">
+      <label><input type="checkbox" id="drag"> Attiva resistenza atmosferica (LEO)</label>
+      <label>BC (Cd·A/m) — kg⁻¹
+        <input id="bc" type="range" min="0.0005" max="0.02" step="0.0005" value="0.005">
+        <span id="bcVal">0.0050</span>
+      </label>
+      <div>
+        <button id="btnXls" style="border:1px solid var(--line); background:#0f1837; color:var(--ink);
+          padding:8px 12px; border-radius:12px; cursor:pointer; font-weight:700; margin-top:6px;">
+          Esporta telemetria (.xls)
+        </button>
+        <p class="small">Colonne: t, x, y, z, alt_m, a_m, e, i_deg, Ω_deg, ω_deg, M₀_deg, eclissi</p>
+      </div>
+    </div>
+
+    <!-- Scala e opzioni Sistema Solare -->
+    <div class="group ss-only hidden">
+      <label>Scala orbite (AU → pixel)
+        <input id="ssScale" type="range" min="80" max="400" step="10" value="160">
+        <span id="ssScaleVal">160 px/AU</span>
+      </label>
+      <label>Scala raggi pianeti (visuale)
+        <input id="ssPR" type="range" min="0.5" max="6" step="0.1" value="2.4">
+        <span id="ssPRVal">2.4×</span>
+      </label>
+      <div class="toggles">
+        <label><input type="checkbox" id="ssIncl" checked> Orbite inclinate</label>
+        <label><input type="checkbox" id="ssTrails" checked> Tracce orbite</label>
+        <label><input type="checkbox" id="ssSpin" checked> Rotazione pianeti</label>
+      </div>
+    </div>
+  </section>
+
+  <p class="small">Standalone tutto-in-uno: nessuna dipendenza, nessun service worker. Hard refresh (⌘⇧R) se avevi versioni vecchie aperte.</p>
 </main>
 
-<script src="https://unpkg.com/three@0.160.1/build/three.min.js"></script>
-<script src="https://unpkg.com/three@0.160.1/examples/js/controls/OrbitControls.js"></script>
+<footer>© 2025 — MIT</footer>
 
 <script>
 (function(){
   'use strict';
+  /* ================== COSTANTI E UTIL ================== */
+  const R_EARTH = 6371e3;
+  const MU      = 3.986004418e14;
+  const OBLIQUITY = 23.44 * Math.PI/180;
 
+  // Atmosfera semplificata
+  const RHO0 = 1.225, Hs = 8500;
+
+  // Canvas
   const canvas = document.getElementById('view');
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-  renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setSize(canvas.width, canvas.height);
+  const ctx = canvas.getContext('2d');
+  let W=canvas.width, H=canvas.height, cx=W/2, cy=H/2;
 
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(30, canvas.width / canvas.height, 1, 10000);
-  camera.position.set(0, 100, 300);
+  // Stato comune
+  let t=0, timescale=6;
 
-  const controls = new THREE.OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
+  // Utils
+  const clamp=(v,min,max)=>v<min?min:(v>max?max:v);
+  const toRad=d=>d*Math.PI/180;
+  const V=(x,y,z)=>({x,y,z});
+  const add=(a,b)=>V(a.x+b.x,a.y+b.y,a.z+b.z);
+  const sub=(a,b)=>V(a.x-b.x,a.y-b.y,a.z-b.z);
+  const dot=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z;
+  const mul=(a,s)=>V(a.x*s,a.y*s,a.z*s);
+  const nrm=a=>{const n=Math.hypot(a.x,a.y,a.z); return n?mul(a,1/n):V(0,0,0);};
+  const crs=(a,b)=>V(a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x);
+  function sph(r,th,ph){ return V(r*Math.cos(ph)*Math.cos(th), r*Math.sin(ph), r*Math.cos(ph)*Math.sin(th)); }
 
-  // Luce solare
-  const sunLight = new THREE.PointLight(0xffffff, 2, 1000);
-  scene.add(sunLight);
-  scene.add(new THREE.AmbientLight(0x111122));
-
-  // Scala visiva (non reale, ma riconoscibile)
-  const DIST_SCALE = 0.8;   // distanza
-  const SIZE_SCALE = 0.03;  // dimensione
-
-  // Dati pianeti: [nome, raggio, distanza, colore, periodo orbitale (giorni), inclinazione]
-  const planets = [
-    ["Mercurio", 2.4, 20, 0x8a7f70, 88, 7],
-    ["Venere",   6.0, 35, 0xe39e1c, 225, 3.4],
-    ["Terra",    6.4, 50, 0x6b93d6, 365, 0],
-    ["Marte",    3.4, 70, 0xc1440e, 687, 1.9],
-    ["Giove",   70,  100, 0xd8ca9d, 4333, 1.3],
-    ["Saturno", 60,  140, 0xe3e0c0, 10759, 2.5],
-    ["Urano",   25,  180, 0x4fd0e7, 30687, 0.8],
-    ["Nettuno", 24,  220, 0x5b73d6, 60190, 1.8]
-  ];
-
-  // Sole
-  const sunGeo = new THREE.SphereGeometry(15, 32, 32);
-  const sunMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
-  const sun = new THREE.Mesh(sunGeo, sunMat);
-  scene.add(sun);
-
-  const planetObjects = [];
-
-  planets.forEach(([name, radius, distance, color, period, incl]) => {
-    const group = new THREE.Group();
-    group.rotation.x = THREE.MathUtils.degToRad(incl);
-    
-    const geo = new THREE.SphereGeometry(radius * SIZE_SCALE, 24, 24);
-    const mat = new THREE.MeshPhongMaterial({ color });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.x = distance * DIST_SCALE;
-    group.add(mesh);
-    
-    // Anelli Saturno
-    if (name === "Saturno") {
-      const ringGeo = new THREE.RingGeometry(radius * SIZE_SCALE * 1.5, radius * SIZE_SCALE * 2.5, 32);
-      const ringMat = new THREE.MeshBasicMaterial({ 
-        color: 0xe3e0c0, 
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.7
-      });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.rotation.x = Math.PI / 2;
-      mesh.add(ring);
-    }
-
-    scene.add(group);
-    planetObjects.push({ mesh, group, distance: distance * DIST_SCALE, period, rotationSpeed: 0.02 });
-  });
-
-  // HUD
-  const hud = document.getElementById('hud');
-
-  // Animazione
-  const clock = new THREE.Clock();
-  function animate() {
-    requestAnimationFrame(animate);
-    
-    const t = clock.getElapsedTime();
-    
-    sun.rotation.y += 0.001;
-    
-    let info = `t=${(t/86400).toFixed(2)} giorni solari | `;
-    planetObjects.forEach((p, i) => {
-      const angle = (t / p.period) * Math.PI * 2;
-      p.mesh.position.x = Math.cos(angle) * p.distance;
-      p.mesh.position.z = Math.sin(angle) * p.distance;
-      p.mesh.rotation.y += p.rotationSpeed;
-      if (i < 3) info += `${planets[i][0]}: ${(angle * 180 / Math.PI).toFixed(0)}° `;
-    });
-    hud.textContent = info;
-
-    controls.update();
-    renderer.render(scene, camera);
+  function worldToScreen(p){
+    const camPos = sph(cam.r, cam.theta, cam.phi);
+    const fwd = nrm(sub(cam.target, camPos));
+    const right = nrm(crs(fwd, V(0,1,0)));
+    const up = nrm(crs(right, fwd));
+    const rel = sub(p, camPos);
+    const x = rel.x*right.x + rel.y*right.y + rel.z*right.z;
+    const y = rel.x*up.x    + rel.y*up.y    + rel.z*up.z;
+    const z = rel.x*fwd.x   + rel.y*fwd.y   + rel.z*fwd.z;
+    const s = cam.fov / Math.max(1e-6, (cam.fov + z));
+    return {x: cx + x*s, y: cy - y*s, z};
   }
-  animate();
+  function projectRadius(r){
+    const a = worldToScreen(V(r,0,0)), b = worldToScreen(V(0,0,0));
+    return Math.hypot(a.x-b.x, a.y-b.y);
+  }
 
-  // Resize
-  window.addEventListener('resize', () => {
-    const rect = canvas.getBoundingClientRect();
-    renderer.setSize(rect.width, rect.height);
-    camera.aspect = rect.width / rect.height;
-    camera.updateProjectionMatrix();
-  });
+  /* ================== STELLE PARALLAX ================== */
+  const stars = (function(){
+    const rng=(i)=>{ let x = i*1664525 + 1013904223; x ^= x<<13; x ^= x>>17; x ^= x<<5; return Math.abs(x); };
+    const layers=[], counts=[140,90,50];
+    for(let L=0; L<3; L++){
+      const arr=[];
+      for(let i=0;i<counts[L];i++){
+        const rx = rng(i+L*997)%10000/10000, ry = rng(i+L*233)%10000/10000;
+        arr.push({x:rx, y:ry});
+      }
+      layers.push(arr);
+    }
+    return layers;
+  })();
+  function drawStars(now){
+    const par=[0.2,0.5,1.0];
+    ctx.save();
+    for(let L=0;L<3;L++){
+      ctx.globalAlpha=0.55+0.15*L;
+      const k=par[L];
+      for(const s of stars[L]){
+        const x=((s.x*W + k*cam.theta*90)%W+W)%W;
+        const y=((s.y*H + k*cam.phi*60)%H+H)%H;
+        const tw=(Math.sin(now*0.001+(s.x+s.y)*50)*0.5+0.5)*0.6+0.2+0.1*L;
+        ctx.fillStyle=`rgba(255,255,255,${tw.toFixed(3)})`;
+        ctx.fillRect(x,y,1,1);
+      }
+    }
+    ctx.restore();
+  }
+
+  /* ================== CAMERA ================== */
+  const cam = { r: 2.8*R_EARTH, theta:-0.8, phi:0.9, fov:900, target:{x:0,y:0,z:0} };
+  function onResize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width = Math.max(800, Math.floor(r.width*dpr));
+    canvas.height= Math.floor(canvas.width*9/16);
+    W=canvas.width; H=canvas.height; cx=W/2; cy=H/2;
+  }
+  window.addEventListener('resize', onResize); onResize();
+
+  /* ================== UI ================== */
+  const el=id=>document.getElementById(id);
+  const hud = el('hud');
+
+  const modeSel = el('mode');
+  let mode = modeSel.value; // 'cubesat' | 'solarsys'
+  modeSel.onchange = ()=>{ mode = modeSel.value; togglePanels(); resetForMode(); };
+
+  // comuni
+  const TS = el('timescale'); const TSV = el('timescaleVal');
+  TS.oninput=()=>{ timescale=+TS.value; TSV.textContent=timescale.toFixed(1)+'×'; };
+
+  // CubeSat controls
+  const S = {
+    scenario: el('scenario'),
+    per: el('perigee'), apo: el('apogee'), incl: el('incl'), raan: el('raan'),
+    argp: el('argp'), m0: el('m0'), trail: el('trail'),
+    showAxes: el('showAxes'), showOrbit: el('showOrbit'), atmo: el('atmo'), shadow: el('shadow'),
+    drag: el('drag'), bc: el('bc'),
+    perV: el('perigeeVal'), apoV: el('apogeeVal'), inclV: el('inclVal'), raanV: el('raanVal'),
+    argpV: el('argpVal'), m0V: el('m0Val'), trailV: el('trailVal'), bcV: el('bcVal')
+  };
+
+  // Solar system controls
+  const SS = {
+    scale: el('ssScale'), scaleV: el('ssScaleVal'),
+    pscale: el('ssPR'), pscaleV: el('ssPRVal'),
+    incl: el('ssIncl'), trails: el('ssTrails'), spin: el('ssSpin')
+  };
+  SS.scale.oninput=()=>SS.scaleV.textContent = (+SS.scale.value).toFixed(0)+" px/AU";
+  SS.pscale.oninput=()=>SS.pscaleV.textContent = (+SS.pscale.value).toFixed(1)+"×";
+
+  function togglePanels(){
+    for(const n of document.querySelectorAll('.cs-only')) n.classList.toggle('hidden', mode!=='cubesat');
+    for(const n of document.querySelectorAll('.ss-only')) n.classList.toggle('hidden', mode!=='solarsys');
+  }
+  /* ================== CUBESAT ================== */
+  let perigeeAlt=400e3, apogeeAlt=400e3, inclDeg=51, raanDeg=0, argpDeg=0, m0Deg=0;
+  let showAxes=true, showOrbit=true, showAtmo=true, showShadow=true;
+  let useDrag=false, BC=0.005, trailMax=800, trail=[];
+  // telemetria
+  let log = [], logEvery=3, logAcc=0;
+
+  // stato orbitale corrente
+  let a=0,e=0,i=0,raan=0,argp=0,M0=0;
+  let dhAccum=0,lastAlt=null,periodEst=null,orbitTimeAccum=0,dhPerOrbit=0;
+
+  function setFromUI(){
+    perigeeAlt = +S.per.value*1000; S.perV.textContent=(perigeeAlt/1000).toFixed(0);
+    apogeeAlt  = +S.apo.value*1000; S.apoV.textContent=(apogeeAlt/1000).toFixed(0);
+    inclDeg    = +S.incl.value;     S.inclV.textContent=inclDeg.toFixed(0);
+    raanDeg    = +S.raan.value;     S.raanV.textContent=raanDeg.toFixed(0);
+    argpDeg    = +S.argp.value;     S.argpV.textContent=argpDeg.toFixed(0);
+    m0Deg      = +S.m0.value;       S.m0V.textContent  =m0Deg.toFixed(0);
+    trailMax   = +S.trail.value;    S.trailV.textContent=trailMax.toFixed(0);
+    useDrag    = S.drag.checked;
+    BC         = +S.bc.value;       S.bcV.textContent  =BC.toFixed(4);
+    showAxes   = S.showAxes.checked; showOrbit = S.showOrbit.checked; showAtmo = S.atmo.checked; showShadow = S.shadow.checked;
+
+    const rp = R_EARTH + perigeeAlt, ra = R_EARTH + apogeeAlt;
+    a=0.5*(rp+ra); e=(ra-rp)/(ra+rp); i=toRad(inclDeg); raan=toRad(raanDeg); argp=toRad(argpDeg); M0=toRad(m0Deg);
+
+    trail.length=0; t=0; dhAccum=0; lastAlt=null; orbitTimeAccum=0;
+    periodEst = 2*Math.PI / Math.sqrt(MU/Math.pow(a,3));
+    cam.r = 2.8*R_EARTH; cam.target=V(0,0,0);
+  }
+  S.per.oninput=S.apo.oninput=S.incl.oninput=S.raan.oninput=S.argp.oninput=S.m0.oninput=S.trail.oninput=S.bc.oninput= setFromUI;
+  S.drag.onchange= setFromUI;
+  S.showAxes.onchange= setFromUI; S.showOrbit.onchange= setFromUI; S.atmo.onchange= setFromUI; S.shadow.onchange= setFromUI;
+  S.scenario.onchange = ()=>{
+    const v=S.scenario.value;
+    if (v==='launch'){ S.per.value=200; S.apo.value=400; S.incl.value=51; S.raan.value=0; S.argp.value=0; S.m0.value=0; TS.value=3; TS.oninput(); S.trail.value=400; }
+    else if (v==='leo'){ S.per.value=400; S.apo.value=400; S.incl.value=51; S.raan.value=0; S.argp.value=0; S.m0.value=0; TS.value=6; TS.oninput(); S.trail.value=800; }
+    else if (v==='ellipse'){ S.per.value=300; S.apo.value=800; S.incl.value=63; S.raan.value=90; S.argp.value=30; S.m0.value=0; TS.value=8; TS.oninput(); S.trail.value=1200; }
+    else if (v==='gto'){ S.per.value=250; S.apo.value=35786; S.incl.value=27; S.raan.value=20; S.argp.value=180; S.m0.value=0; TS.value=30; TS.oninput(); S.trail.value=2000; }
+    setFromUI();
+  };
+
+  function elementsToState(a,e,i,raan,argp,M0,time){
+    const n = Math.sqrt(MU/Math.pow(a,3));
+    const M = (M0 + n*time) % (2*Math.PI);
+    let E = M;
+    for(let k=0;k<8;k++){ const f=E - e*Math.sin(E) - M, fp=1 - e*Math.cos(E); E -= f/fp; }
+    const cosE=Math.cos(E), sinE=Math.sin(E);
+    const nu = Math.atan2(Math.sqrt(1-e*e)*sinE, cosE - e);
+    const r  = a*(1 - e*cosE);
+    const xpf = r*Math.cos(nu), ypf = r*Math.sin(nu);
+    const cO=Math.cos(raan), sO=Math.sin(raan), ci=Math.cos(i), si=Math.sin(i), co=Math.cos(argp), so=Math.sin(argp);
+    const x=(cO*co - sO*so*ci)*xpf + (-cO*so - sO*co*ci)*ypf;
+    const y=(so*si)*xpf + (co*si)*ypf;
+    const z=(sO*co + cO*so*ci)*xpf + (-sO*so + cO*co*ci)*ypf;
+    return {pos:V(x,y,z), r, n};
+  }
+  function applyDrag(dt, st){
+    const rmag = Math.sqrt(dot(st.pos,st.pos));
+    const alt  = rmag - R_EARTH;
+    if (alt<120e3) return;
+    const v = Math.sqrt(MU*(2/rmag - 1/a));
+    const rho = RHO0 * Math.exp(-alt/Hs);
+    const k = BC * 1e-5;
+    a = Math.max(R_EARTH+100e3, a - k*rho*v*v*v*dt);
+    e = Math.max(0, e - k*0.2*rho*v*v*dt);
+    periodEst = 2*Math.PI / Math.sqrt(MU/Math.pow(a,3));
+  }
+  function sunDirection(timeSec){
+    const season = timeSec / (200 * Math.PI);
+    const alpha = season, delta = OBLIQUITY * Math.sin(season);
+    const c = Math.cos(delta), s = Math.sin(delta);
+    return nrm(V(c*Math.cos(alpha), s, c*Math.sin(alpha)));
+  }
+  function inUmbra(p, sDir){
+    const d = dot(p,sDir); if (d>0) return false;
+    const perp = Math.sqrt(dot(p,p) - d*d);
+    return perp < R_EARTH;
+  }
+  function drawEarth(sDir){
+    const R = projectRadius(R_EARTH);
+    const c0 = worldToScreen(V(0,0,0));
+    if (S.shadow.checked){
+      const s2 = worldToScreen(add(V(0,0,0), mul(sDir, R_EARTH)));
+      const vx = c0.x - (s2.x - c0.x), vy = c0.y - (s2.y - c0.y);
+      const dx = vx - c0.x, dy = vy - c0.y;
+      const shift = 0.35; const gx = c0.x + dx*shift, gy = c0.y + dy*shift;
+      const pen = ctx.createRadialGradient(gx, gy, R*0.9, c0.x, c0.y, R*1.15);
+      pen.addColorStop(0,"rgba(0,0,0,0)"); pen.addColorStop(1,"rgba(0,0,0,0.18)");
+      ctx.fillStyle=pen; ctx.beginPath(); ctx.arc(c0.x,c0.y,R*1.15,0,Math.PI*2); ctx.fill();
+      const night = ctx.createRadialGradient(gx, gy, R*0.2, c0.x, c0.y, R*1.05);
+      night.addColorStop(0,"rgba(0,0,0,0)"); night.addColorStop(1,"rgba(0,0,0,0.48)");
+      ctx.fillStyle=night; ctx.beginPath(); ctx.arc(c0.x,c0.y,R,0,Math.PI*2); ctx.fill();
+    }
+    const sea = ctx.createRadialGradient(c0.x-0.3*R, c0.y-0.35*R, R*0.2, c0.x, c0.y, R*1.1);
+    sea.addColorStop(0,"#2a6fdb"); sea.addColorStop(1,"#0a1d47");
+    ctx.fillStyle=sea; ctx.beginPath(); ctx.arc(c0.x,c0.y,R,0,Math.PI*2); ctx.fill();
+    if (S.atmo.checked){
+      const Ra=R*1.04, a=ctx.createRadialGradient(c0.x,c0.y,R*0.95,c0.x,c0.y,Ra);
+      a.addColorStop(0,"rgba(120,200,255,.05)"); a.addColorStop(1,"rgba(120,200,255,0)");
+      ctx.fillStyle=a; ctx.beginPath(); ctx.arc(c0.x,c0.y,Ra,0,Math.PI*2); ctx.fill();
+    }
+    if (S.showAxes.checked){
+      ctx.strokeStyle="rgba(255,255,255,.2)"; ctx.lineWidth=1; ctx.beginPath();
+      const A=[V(R_EARTH*1.3,0,0),V(-R_EARTH*1.3,0,0),V(0,R_EARTH*1.3,0),V(0,-R_EARTH*1.3,0),V(0,0,R_EARTH*1.3),V(0,0,-R_EARTH*1.3)];
+      for(let i=0;i<A.length;i+=2){const a=worldToScreen(A[i]), b=worldToScreen(A[i+1]); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y);}
+      ctx.stroke();
+    }
+  }
+  function drawOrbitPath(points){
+    if (!S.showOrbit.checked || points.length<2) return;
+    ctx.strokeStyle="rgba(96,165,250,.85)"; ctx.lineWidth=1.6; ctx.beginPath();
+    let s=worldToScreen(points[0]); ctx.moveTo(s.x,s.y);
+    for(let i=1;i<points.length;i++){ s=worldToScreen(points[i]); ctx.lineTo(s.x,s.y); }
+    ctx.stroke();
+  }
+  function drawCubeSat(p, eclipsed){
+    const s = worldToScreen(p);
+    const size = clamp(8 + 1200/(1 + s.z + 1e-6), 2, 14);
+    ctx.fillStyle = eclipsed? "rgba(234,241,255,0.6)" : "#eaf1ff";
+    ctx.strokeStyle="rgba(0,0,0,.25)"; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.rect(s.x-size/2, s.y-size/2, size, size); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = eclipsed? "rgba(96,165,250,0.5)" : "#60a5fa";
+    ctx.fillRect(s.x - size*1.9, s.y - size*0.3, size*0.7, size*0.6);
+    ctx.fillRect(s.x + size*1.2, s.y - size*0.3, size*0.7, size*0.6);
+  }
+
+  // Telemetria -> Excel
+  function exportExcelXLS() {
+    const headers = ["t","x","y","z","alt_m","a_m","e","i_deg","RAAN_deg","argp_deg","M0_deg","eclissi"];
+    let html = '<table><thead><tr>';
+    for (const h of headers) html += `<th>${h}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const r of log) {
+      html += '<tr>' +
+        `<td>${r.t.toFixed(2)}</td>` +
+        `<td>${r.x.toFixed(3)}</td>` +
+        `<td>${r.y.toFixed(3)}</td>` +
+        `<td>${r.z.toFixed(3)}</td>` +
+        `<td>${r.alt_m.toFixed(3)}</td>` +
+        `<td>${r.a_m.toFixed(3)}</td>` +
+        `<td>${r.e.toFixed(6)}</td>` +
+        `<td>${(+r.i_deg).toFixed(3)}</td>` +
+        `<td>${(+r.raan_deg).toFixed(3)}</td>` +
+        `<td>${(+r.argp_deg).toFixed(3)}</td>` +
+        `<td>${(+r.m0_deg).toFixed(3)}</td>` +
+        `<td>${r.eclipse}</td>` +
+      '</tr>';
+    }
+    html += '</tbody></table>';
+    const blob = new Blob([html], {type:'application/vnd.ms-excel'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='cubesat_telemetria.xls'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }
+  el('btnXls').addEventListener('click', exportExcelXLS);
+
+  /* ================== SISTEMA SOLARE (8 PIANETI) ================== */
+  // Dati approssimati (epoca arbitraria), unità: a[AU], e, i[deg], Ω[deg], ω[deg], M0[deg], P[giorni], rPlanet[Rearth]
+  const AU = 149597870700; // m
+  const PLANETS = [
+    {name:'Mercurio', a:0.387, e:0.206, i:7.00,  O:48.331, w:29.124, M0:174.796, P:87.969,  rE:0.383, color:'#c9b090'},
+    {name:'Venere',   a:0.723, e:0.007, i:3.39,  O:76.680, w:54.884, M0:50.115,  P:224.701, rE:0.949, color:'#f5d7a1'},
+    {name:'Terra',    a:1.000, e:0.017, i:0.00,  O:-11.260, w:114.207, M0:100.464, P:365.256, rE:1.000, color:'#5bb8ff'},
+    {name:'Marte',    a:1.524, e:0.093, i:1.85,  O:49.558, w:286.502, M0:19.373,  P:686.980, rE:0.532, color:'#ff8c5b'},
+    {name:'Giove',    a:5.203, e:0.049, i:1.31,  O:100.464, w:273.867, M0:20.020, P:4332.589, rE:11.21, color:'#f0e1c0'},
+    {name:'Saturno',  a:9.537, e:0.056, i:2.49,  O:113.665, w:339.392, M0:317.020,P:10759.22, rE:9.45,  color:'#f7e6b1'},
+    {name:'Urano',    a:19.19, e:0.047, i:0.77,  O:74.006,  w:96.998,  M0:142.238, P:30685.4, rE:4.01,  color:'#9bdaf5'},
+    {name:'Nettuno',  a:30.07, e:0.009, i:1.77,  O:131.784, w:272.846, M0:256.228, P:60189.0, rE:3.88,  color:'#6db5ff'}
+  ];
+  let ssScale = +SS.scale.value;            // px per AU
+  let ssPlanetScale = +SS.pscale.value;     // fattore raggio visuale
+  SS.scale.oninput=()=>{ ssScale=+SS.scale.value; SS.scaleV.textContent=ssScale+" px/AU"; };
+  SS.pscale.oninput=()=>{ ssPlanetScale=+SS.pscale.value; SS.pscaleV.textContent=ssPlanetScale.toFixed(1)+"×"; };
+
+  function kepler2posAU(p, tdays){
+    // Keplero elissoidale con i, Ω, ω; usa periodo P in giorni per mean motion
+    const n = 2*Math.PI / p.P;
+    const M = (toRad(p.M0) + n*tdays) % (2*Math.PI);
+    let E = M;
+    for(let k=0;k<8;k++){ const f=E - p.e*Math.sin(E) - M, fp=1 - p.e*Math.cos(E); E -= f/fp; }
+    const nu = Math.atan2(Math.sqrt(1-p.e*p.e)*Math.sin(E), Math.cos(E)-p.e);
+    const r = p.a*(1 - p.e*Math.cos(E));
+    const xpf = r*Math.cos(nu), ypf = r*Math.sin(nu);
+    const O=toRad(p.O), I=toRad(p.i), w=toRad(p.w);
+    const cO=Math.cos(O), sO=Math.sin(O), cI=Math.cos(I), sI=Math.sin(I), cw=Math.cos(w), sw=Math.sin(w);
+    const x=(cO*cw - sO*sw*cI)*xpf + (-cO*sw - sO*cw*cI)*ypf;
+    const y=(sw*sI)*xpf + (cw*sI)*ypf;
+    const z=(sO*cw + cO*sw*cI)*xpf + (-sO*sw + cO*cw*cI)*ypf;
+    return V(x,y,z); // in AU
+  }
+
+  let ssTrails = []; for(let i=0;i<PLANETS.length;i++) ssTrails[i]=[];
+  function drawSolarSystem(dt){
+    // Sole al centro in (0,0,0)
+    // camera “piatta” verso il piano medio
+    cam.r = 10*AU/ssScale; cam.target = V(0,0,0);
+
+    // Sole
+    const sunRpx = 20; // puro visual
+    const c0 = worldToScreen(V(0,0,0));
+    const g = ctx.createRadialGradient(c0.x, c0.y, sunRpx*0.2, c0.x, c0.y, sunRpx*1.8);
+    g.addColorStop(0,"#fff8c6"); g.addColorStop(1,"rgba(255,240,150,0.05)");
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(c0.x, c0.y, sunRpx*1.8, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle="#ffe39a"; ctx.beginPath(); ctx.arc(c0.x, c0.y, sunRpx, 0, Math.PI*2); ctx.fill();
+
+    // Pianeti
+    const showIncl = SS.incl.checked, showTrails = SS.trails.checked, spin = SS.spin.checked;
+
+    PLANETS.forEach((p, idx)=>{
+      const tdays = t / 86400 * timescale; // tempo in giorni “accelerati”
+      const posAU = kepler2posAU(p, tdays);
+      const pos = V(posAU.x*AU, posAU.y*AU, posAU.z*AU);
+
+      // trail
+      if (showTrails){
+        const arr = ssTrails[idx];
+        arr.push(pos); if (arr.length > 1200) arr.shift();
+        ctx.strokeStyle="rgba(173,216,230,0.5)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        let s = worldToScreen(arr[0]);
+        ctx.moveTo(s.x, s.y);
+        for (let k=1;k<arr.length;k++){ s=worldToScreen(arr[k]); ctx.lineTo(s.x, s.y); }
+        ctx.stroke();
+      }
+
+      // orbita (sezione) — opzionale: già resa dalla trail
+      // Pianeta (scala visuale)
+      const s = worldToScreen(pos);
+      const rpx = Math.max(2, Math.log(1+p.rE)*ssPlanetScale); // disc log per leggibilità
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(s.x, s.y, rpx, 0, Math.PI*2); ctx.fill();
+
+      if (spin){
+        ctx.strokeStyle="rgba(0,0,0,0.35)"; ctx.lineWidth=1;
+        const ang = (tdays/p.P)*Math.PI*2*10; // fittizio
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x + Math.cos(ang)*rpx, s.y + Math.sin(ang)*rpx);
+        ctx.stroke();
+      }
+
+      // etichetta
+      ctx.fillStyle="rgba(234,241,255,0.9)";
+      ctx.font="11px ui-monospace, Menlo, monospace";
+      ctx.fillText(p.name, s.x + rpx + 4, s.y - rpx - 2);
+    });
+  }
+
+  /* ================== LOOP ================== */
+  // default: CubeSat LEO
+  S.scenario.dispatchEvent(new Event('change'));
+  togglePanels();
+
+  let last = performance.now();
+  function loop(now){
+    requestAnimationFrame(loop);
+    let dt = (now - last)/1000; last = now;
+    dt = Math.min(dt, 0.05);
+
+    // update camera anim
+    cam.theta += 0.03*dt;
+    cam.phi = 0.9 + 0.12*Math.sin(now*0.0005);
+
+    ctx.clearRect(0,0,W,H);
+    drawStars(now);
+
+    if (mode==='cubesat'){
+      // tempo
+      t += dt*timescale;
+
+      // stato
+      let st;
+      if (S.scenario.value==='launch'){
+        const k = Math.max(0, Math.min(1, t/120));
+        st = elementsToState(a, e*k, i*k, raan*k, argp*k, M0*k, t);
+      } else {
+        // anticipa M per loop fluido; applica drag ponderato
+        const st0 = elementsToState(a,e,i,raan,argp,M0,t);
+        if (useDrag) applyDrag(dt*timescale, st0);
+        M0 = (M0 + Math.sqrt(MU/Math.pow(a,3))*dt*timescale) % (2*Math.PI);
+        st = elementsToState(a,e,i,raan,argp,M0,t);
+      }
+
+      // traccia
+      trail.push(st.pos); if (trail.length>trailMax) trail.shift();
+
+      // disegno Terra + orbita + CubeSat
+      const sDir = sunDirection(t);
+      drawEarth(sDir);
+      drawOrbitPath(trail);
+      const eclipsed = inUmbra(st.pos, sDir);
+      drawCubeSat(st.pos, eclipsed);
+
+      // HUD + telemetria
+      const alt = Math.sqrt(dot(st.pos,st.pos)) - R_EARTH;
+      if (lastAlt===null) lastAlt=alt;
+      const dAlt = alt - lastAlt; lastAlt = alt;
+      if (useDrag){
+        dhAccum += dAlt; orbitTimeAccum += dt*timescale;
+        if (periodEst && orbitTimeAccum >= periodEst){
+          dhPerOrbit = (dhAccum/1000); dhAccum=0; orbitTimeAccum=0;
+        }
+      } else { dhPerOrbit=0; dhAccum=0; orbitTimeAccum=0; }
+
+      hud.textContent =
+        `CubeSat | t=${t.toFixed(0)}s | alt=${(alt/1000).toFixed(0)}km | a=${(a/1000).toFixed(0)}km | e=${e.toFixed(3)} `+
+        `| i=${inclDeg|0}° | Ω=${raanDeg|0}° | ω=${argpDeg|0}° | M₀=${m0Deg|0}° | drag:${useDrag?'ON':'OFF'} | BC=${BC.toFixed(4)} | Δh=${dhPerOrbit.toFixed(2)} km/orbit`;
+
+      // LOG per Excel
+      logAcc += dt*timescale;
+      if (logAcc >= logEvery) {
+        logAcc = 0;
+        log.push({
+          t, x:st.pos.x, y:st.pos.y, z:st.pos.z,
+          alt_m:alt, a_m:a, e:e, i_deg:inclDeg, raan_deg:raanDeg, argp_deg:argpDeg, m0_deg:m0Deg,
+          eclipse: eclipsed?1:0
+        });
+        if (log.length>10000) log.shift();
+      }
+
+    } else { // Sistema Solare
+      t += dt*timescale*864; // velocità più “energica” in SS
+      drawSolarSystem(dt);
+      hud.textContent = `Sistema Solare | t=${(t/86400).toFixed(1)} giorni sim | scala=${ssScale} px/AU | rPlan=${ssPlanetScale.toFixed(1)}×`+
+                        ` | incl:${SS.incl.checked?'ON':'OFF'} | trails:${SS.trails.checked?'ON':'OFF'} | spin:${SS.spin.checked?'ON':'OFF'}`;
+    }
+  }
+  requestAnimationFrame(loop);
+
+  function resetForMode(){
+    if (mode==='cubesat'){ S.scenario.value='leo'; S.scenario.dispatchEvent(new Event('change')); }
+    else {
+      // scala camera coerente
+      cam.r = 10*AU/ssScale; cam.target=V(0,0,0);
+    }
+  }
+
+  // inizializza stati visuali
+  setFromUI();
+
 })();
 </script>
 </body>
